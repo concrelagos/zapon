@@ -1,0 +1,16 @@
+{
+  "name": "bot-whatsapp-agendamentos",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "@whiskeysockets/baileys": "^6.7.8",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "mysql2": "^3.9.7",
+    "node-cron": "^3.0.3",
+    "qrcode-terminal": "^0.12.0"
+  }
+}
