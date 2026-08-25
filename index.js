@@ -2,41 +2,21 @@ const { default: makeWASocket, useMultiFileAuthState, DisconnectReason } = requi
 const mysql = require('mysql2/promise');
 const cron = require('node-cron');
 const express = require('express');
-const qrcode = require('qrcode-terminal');
+const QRCode = require('qrcode');
 require('dotenv').config();
 
 const app = express();
 app.use(express.json());
 
 let sock;
+let latestQR = '';
 
-// Pool de conexão com o MySQL na Hostinger
-const pool = mysql.createPool({
-  host: process.env.DB_HOST,
-  user: process.env.DB_USER,
-  password: process.env.DB_PASS,
-  database: process.env.DB_NAME,
-  waitForConnections: true,
-  connectionLimit: 10,
-  queueLimit: 0
-});
-
-// Função para formatar o número com DDI 55
-function formatarNumero(numero) {
-  let limpo = String(numero).replace(/\D/g, '');
-  if (limpo.length === 10 || limpo.length === 11) {
-    limpo = '55' + limpo;
-  }
-  return limpo + '@s.whatsapp.net';
-}
-
-// Inicializa a sessão do WhatsApp com Baileys
 async function connectToWhatsApp() {
   const { state, saveCreds } = await useMultiFileAuthState('auth_info_baileys');
 
   sock = makeWASocket({
     auth: state,
-    printQRInTerminal: true
+    printQRInTerminal: false
   });
 
   sock.ev.on('creds.update', saveCreds);
@@ -45,8 +25,8 @@ async function connectToWhatsApp() {
     const { connection, lastDisconnect, qr } = update;
 
     if (qr) {
-      console.log('Escaneie este QR Code no seu WhatsApp:');
-      qrcode.generate(qr, { small: true });
+      latestQR = qr;
+      console.log('Novo QR Code gerado! Acesse a rota /qr no seu navegador para escanear.');
     }
 
     if (connection === 'close') {
@@ -56,6 +36,7 @@ async function connectToWhatsApp() {
         connectToWhatsApp();
       }
     } else if (connection === 'open') {
+      latestQR = '';
       console.log('✅ WhatsApp Conectado com Sucesso!');
     }
   });
@@ -63,62 +44,22 @@ async function connectToWhatsApp() {
 
 connectToWhatsApp();
 
-// Endpoint para envio imediato (quando cria o agendamento no PHP)
-app.post('/send-message', async (req, res) => {
-  const { telefone, mensagem } = req.body;
-  try {
-    if (!sock) return res.status(500).json({ error: 'WhatsApp ainda não inicializado' });
-    const jid = formatarNumero(telefone);
-    await sock.sendMessage(jid, { text: mensagem });
-    return res.json({ status: 'sucesso' });
-  } catch (err) {
-    console.error(err);
-    return res.status(500).json({ error: err.message });
+// Rota para visualizar o QR Code perfeito como imagem na web
+app.get('/qr', async (req, res) => {
+  if (!latestQR) {
+    return res.send('<h2>O WhatsApp já está conectado ou nenhum QR Code foi gerado ainda.</h2>');
   }
-});
-
-// Rota de saúde para o Render manter o serviço ativo
-app.get('/', (req, res) => {
-  res.send('Servidor do WhatsApp está rodando!');
-});
-
-// CRON JOB: Executa a cada 5 minutos procurando agendamentos a 30 min de distância
-cron.schedule('*/5 * * * *', async () => {
-  console.log('🔍 Checando lembretes de 30 minutos...');
   try {
-    const connection = await pool.getConnection();
-
-    // Query para pegar agendamentos de hoje entre 25 e 35 min a frente
-    const [agendamentos] = await connection.execute(`
-      SELECT a.id, a.hora, c.nome AS nome_cliente, c.telefone 
-      FROM agendamentos a 
-      INNER JOIN clientes c ON a.cliente = c.id
-      WHERE a.data = CURDATE()
-        AND (a.lembrete_enviado IS NULL OR a.lembrete_enviado = 'Não')
-        AND TIMESTAMPDIFF(MINUTE, NOW(), CONCAT(a.data, ' ', a.hora)) BETWEEN 25 AND 35
+    const qrImage = await QRCode.toDataURL(latestQR);
+    res.send(`
+      <html>
+        <body style="display:flex;flex-direction:column;align-items:center;justify-center;height:100vh;font-family:sans-serif;background:#0f172a;color:#fff;">
+          <h2>Escaneie o QR Code abaixo com o WhatsApp:</h2>
+          <img src="${qrImage}" style="border:10px solid white;border-radius:10px;margin-top:20px;" />
+        </body>
+      </html>
     `);
-
-    for (const item of agendamentos) {
-      const msg = `Olá *${item.nome_cliente}*! ⏰\n\nPassando para lembrar que seu agendamento é daqui a *30 minutos* (${item.hora}).\n\nAté logo!`;
-      const jid = formatarNumero(item.telefone);
-
-      await sock.sendMessage(jid, { text: msg });
-
-      // Atualiza no MySQL para não reenviar
-      await connection.execute(
-        'UPDATE agendamentos SET lembrete_enviado = "Sim" WHERE id = ?',
-        [item.id]
-      );
-      console.log(`Lembrete enviado para ${item.nome_cliente}`);
-    }
-
-    connection.release();
-  } catch (error) {
-    console.error('Erro na rotina de lembretes:', error);
+  } catch (err) {
+    res.status(500).send('Erro ao gerenciar QR Code: ' + err.message);
   }
-});
-
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`Servidor rodando na porta ${PORT}`);
 });
