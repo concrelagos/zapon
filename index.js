@@ -22,7 +22,7 @@ const pool = mysql.createPool({
   queueLimit: 0
 });
 
-// Função para formatar o número com DDI 55
+// Função para formatar o número com DDI 55 para o Baileys
 function formatarNumero(numero) {
   let limpo = String(numero).replace(/\D/g, '');
   if (limpo.length === 10 || limpo.length === 11) {
@@ -64,7 +64,7 @@ async function connectToWhatsApp() {
 
 connectToWhatsApp();
 
-// Rota raiz para teste rápido
+// Rota raiz para verificação de status (usada pelo UptimeRobot)
 app.get('/', (req, res) => {
   res.send('Servidor do Bot está rodando!');
 });
@@ -89,7 +89,7 @@ app.get('/qr', async (req, res) => {
   }
 });
 
-// Rota para envio imediato (disparado via PHP do site)
+// Rota para envio imediato (disparado via PHP para o funcionário)
 app.post('/send-message', async (req, res) => {
   const { telefone, mensagem } = req.body;
   try {
@@ -98,45 +98,66 @@ app.post('/send-message', async (req, res) => {
     await sock.sendMessage(jid, { text: mensagem });
     return res.json({ status: 'sucesso' });
   } catch (err) {
-    console.error(err);
+    console.error('Erro no endpoint /send-message:', err);
     return res.status(500).json({ error: err.message });
   }
 });
 
-// CRON JOB: Checa lembretes de 30 minutos
+// CRON JOB: Checa e envia lembretes de 30 minutos PARA O FUNCIONÁRIO
 cron.schedule('*/5 * * * *', async () => {
-  console.log('🔍 Checando lembretes...');
+  console.log('🔍 Checando lembretes de 30 minutos para funcionários...');
   try {
     const connection = await pool.getConnection();
     const [agendamentos] = await connection.execute(`
-      SELECT a.id, a.hora, c.nome AS nome_cliente, c.telefone 
+      SELECT 
+        a.id, 
+        a.hora, 
+        a.obs,
+        c.nome AS nome_cliente, 
+        c.telefone AS tel_cliente,
+        u.nome AS nome_funcionario, 
+        u.telefone AS tel_funcionario,
+        s.nome AS nome_servico
       FROM agendamentos a 
       INNER JOIN clientes c ON a.cliente = c.id
+      INNER JOIN usuarios u ON a.funcionario = u.id
+      LEFT JOIN servicos s ON a.servico = s.id
       WHERE a.data = CURDATE()
         AND (a.lembrete_enviado IS NULL OR a.lembrete_enviado = 'Não')
         AND TIMESTAMPDIFF(MINUTE, NOW(), CONCAT(a.data, ' ', a.hora)) BETWEEN 25 AND 35
     `);
 
     for (const item of agendamentos) {
-      const msg = `Olá *${item.nome_cliente}*! ⏰\n\nLembrete: seu agendamento é daqui a *30 minutos* (${item.hora}).`;
-      const jid = formatarNumero(item.telefone);
+      if (item.tel_funcionario) {
+        // Formata o número do cliente para criar o link do WhatsApp (wa.me)
+        let telLimpo = String(item.tel_cliente).replace(/\D/g, '');
+        if (telLimpo.length === 10 || telLimpo.length === 11) {
+          telLimpo = '55' + telLimpo;
+        }
+        const linkWa = `https://wa.me/${telLimpo}`;
 
-      await sock.sendMessage(jid, { text: msg });
+        const msg = `Olá *${item.nome_funcionario}*! ⏰\n\nLembrete de atendimento em *30 minutos*!\n\n👤 *Cliente:* ${item.nome_cliente}\n✂️ *Serviço:* ${item.nome_servico || 'Não informado'}\n⏰ *Horário:* ${item.hora}\n📝 *Obs:* ${item.obs || 'Nenhuma'}\n\n💬 *Falar com o cliente:*\n${linkWa}`;
+        
+        const jid = formatarNumero(item.tel_funcionario);
 
+        await sock.sendMessage(jid, { text: msg });
+        console.log(`Lembrete enviado com sucesso para o funcionário ${item.nome_funcionario}`);
+      }
+
+      // Atualiza para prevenir disparos duplicados
       await connection.execute(
         'UPDATE agendamentos SET lembrete_enviado = "Sim" WHERE id = ?',
         [item.id]
       );
-      console.log(`Lembrete enviado para ${item.nome_cliente}`);
     }
 
     connection.release();
   } catch (error) {
-    console.error('Erro no cron:', error);
+    console.error('Erro no cron de lembretes:', error);
   }
 });
 
-// OBRIGATÓRIO PARA O RENDER: Liga o servidor web na porta informada pelo sistema
+// Inicialização do servidor na porta fornecida pelo Render
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`Servidor escutando na porta ${PORT}`);
