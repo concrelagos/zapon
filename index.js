@@ -11,7 +11,7 @@ app.use(express.json());
 let sock;
 let latestQR = '';
 
-// Pool de conexão com o MySQL na Hostinger
+// Pool de conexão com o MySQL na Hostinger (forçando IPv4)
 const pool = mysql.createPool({
   host: process.env.DB_HOST,
   user: process.env.DB_USER,
@@ -19,7 +19,9 @@ const pool = mysql.createPool({
   database: process.env.DB_NAME,
   waitForConnections: true,
   connectionLimit: 10,
-  queueLimit: 0
+  queueLimit: 0,
+  family: 4, // Força o uso exclusivo de IPv4
+  connectTimeout: 10000
 });
 
 // Adapter de autenticação usando MySQL (Sessão perpétua no banco)
