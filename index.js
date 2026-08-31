@@ -11,7 +11,7 @@ app.use(express.json());
 let sock;
 let latestQR = '';
 
-// Pool de conexão com o MySQL na Hostinger (forçando IPv4)
+// Pool de conexão com o MySQL na Hostinger
 const pool = mysql.createPool({
   host: process.env.DB_HOST,
   user: process.env.DB_USER,
@@ -20,7 +20,6 @@ const pool = mysql.createPool({
   waitForConnections: true,
   connectionLimit: 10,
   queueLimit: 0,
-  family: 4, // Força o uso exclusivo de IPv4
   connectTimeout: 10000
 });
 
@@ -122,10 +121,13 @@ async function connectToWhatsApp() {
     }
 
     if (connection === 'close') {
-      const shouldReconnect = (lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut);
-      console.log('Conexão fechada. Reconectando...', shouldReconnect);
+      const statusCode = lastDisconnect?.error?.output?.statusCode;
+      const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
+      
+      console.log(`Conexão fechada (Código: ${statusCode}). Reconectando: ${shouldReconnect}`);
+
       if (shouldReconnect) {
-        connectToWhatsApp();
+        setTimeout(() => connectToWhatsApp(), 3000);
       }
     } else if (connection === 'open') {
       latestQR = '';
@@ -201,7 +203,6 @@ cron.schedule('*/5 * * * *', async () => {
 
     for (const item of agendamentos) {
       if (item.tel_funcionario) {
-        // Formata o número do cliente para criar o link do WhatsApp (wa.me)
         let telLimpo = String(item.tel_cliente).replace(/\D/g, '');
         if (telLimpo.length === 10 || telLimpo.length === 11) {
           telLimpo = '55' + telLimpo;
@@ -216,7 +217,6 @@ cron.schedule('*/5 * * * *', async () => {
         console.log(`Lembrete enviado com sucesso para o funcionário ${item.nome_funcionario}`);
       }
 
-      // Atualiza para prevenir disparos duplicados
       await connection.execute(
         'UPDATE agendamentos SET lembrete_enviado = "Sim" WHERE id = ?',
         [item.id]
