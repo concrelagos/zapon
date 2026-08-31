@@ -1,4 +1,4 @@
-const { default: makeWASocket, useMultiFileAuthState, DisconnectReason } = require('@whiskeysockets/baileys');
+const { default: makeWASocket, initAuthCreds, proto, DisconnectReason } = require('@whiskeysockets/baileys');
 const mysql = require('mysql2/promise');
 const cron = require('node-cron');
 const express = require('express');
@@ -22,6 +22,76 @@ const pool = mysql.createPool({
   queueLimit: 0
 });
 
+// Adapter de autenticação usando MySQL (Sessão perpétua no banco)
+async function useMySQLAuthState(pool) {
+  const writeData = async (data, id) => {
+    const jsonStr = JSON.stringify(data, (key, value) => {
+      if (value instanceof Uint8Array || Buffer.isBuffer(value)) {
+        return { type: 'Buffer', data: Array.from(value) };
+      }
+      return value;
+    });
+    await pool.query(
+      'INSERT INTO whatsapp_sessoes (id, data) VALUES (?, ?) ON DUPLICATE KEY UPDATE data = ?',
+      [id, jsonStr, jsonStr]
+    );
+  };
+
+  const readData = async (id) => {
+    try {
+      const [rows] = await pool.query('SELECT data FROM whatsapp_sessoes WHERE id = ?', [id]);
+      if (rows.length === 0) return null;
+      return JSON.parse(rows[0].data, (key, value) => {
+        if (value && value.type === 'Buffer' && Array.isArray(value.data)) {
+          return Buffer.from(value.data);
+        }
+        return value;
+      });
+    } catch (error) {
+      return null;
+    }
+  };
+
+  const removeData = async (id) => {
+    await pool.query('DELETE FROM whatsapp_sessoes WHERE id = ?', [id]);
+  };
+
+  const creds = (await readData('creds')) || initAuthCreds();
+
+  return {
+    state: {
+      creds,
+      keys: {
+        get: async (type, ids) => {
+          const data = {};
+          await Promise.all(
+            ids.map(async (id) => {
+              let value = await readData(`${type}-${id}`);
+              if (type === 'app-state-sync-key' && value) {
+                value = proto.Message.AppStateSyncKeyData.fromObject(value);
+              }
+              data[id] = value;
+            })
+          );
+          return data;
+        },
+        set: async (data) => {
+          const tasks = [];
+          for (const category in data) {
+            for (const id in data[category]) {
+              const value = data[category][id];
+              const key = `${category}-${id}`;
+              tasks.push(value ? writeData(value, key) : removeData(key));
+            }
+          }
+          await Promise.all(tasks);
+        }
+      }
+    },
+    saveCreds: () => writeData(creds, 'creds')
+  };
+}
+
 // Função para formatar o número com DDI 55 para o Baileys
 function formatarNumero(numero) {
   let limpo = String(numero).replace(/\D/g, '');
@@ -32,7 +102,7 @@ function formatarNumero(numero) {
 }
 
 async function connectToWhatsApp() {
-  const { state, saveCreds } = await useMultiFileAuthState('auth_info_baileys');
+  const { state, saveCreds } = await useMySQLAuthState(pool);
 
   sock = makeWASocket({
     auth: state,
@@ -155,6 +225,15 @@ cron.schedule('*/5 * * * *', async () => {
   } catch (error) {
     console.error('Erro no cron de lembretes:', error);
   }
+});
+
+// Proteção global contra falhas não tratadas
+process.on('uncaughtException', (err) => {
+  console.error('Erro não tratado capturado:', err);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('Rejeição não tratada em:', promise, 'motivo:', reason);
 });
 
 // Inicialização do servidor na porta fornecida pelo Render
