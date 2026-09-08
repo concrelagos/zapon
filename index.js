@@ -169,7 +169,10 @@ app.post('/send-message', async (req, res) => {
   try {
     if (!sock) return res.status(500).json({ error: 'WhatsApp ainda não inicializado' });
     const jid = formatarNumero(telefone);
-    await sock.sendMessage(jid, { text: mensagem });
+    
+    // DESATIVADO O PREVIEW DE LINK PARA EVITAR A FALHA DO MODULE_NOT_FOUND
+    await sock.sendMessage(jid, { text: mensagem, linkPreview: null });
+    
     return res.json({ status: 'sucesso' });
   } catch (err) {
     console.error('Erro no endpoint /send-message:', err);
@@ -213,7 +216,8 @@ cron.schedule('*/5 * * * *', async () => {
         
         const jid = formatarNumero(item.tel_funcionario);
 
-        await sock.sendMessage(jid, { text: msg });
+        // DESATIVADO O PREVIEW DE LINK NO CRON
+        await sock.sendMessage(jid, { text: msg, linkPreview: null });
         console.log(`Lembrete enviado com sucesso para o funcionário ${item.nome_funcionario}`);
       }
 
