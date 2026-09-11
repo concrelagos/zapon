@@ -9,6 +9,7 @@
     "@whiskeysockets/baileys": "^6.7.8",
     "dotenv": "^16.4.5",
     "express": "^4.19.2",
+    "cors": "^2.8.5",
     "mysql2": "^3.9.7",
     "node-cron": "^3.0.3",
     "link-preview-js": "^3.0.0",
