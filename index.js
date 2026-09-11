@@ -112,7 +112,9 @@ async function connectToWhatsApp() {
 		printQRInTerminal: false,
 		connectTimeoutMs: 60000, // <--- Aumenta o tempo limite de conexão para 60 segundos
 		defaultQueryTimeoutMs: 60000, // <--- Aumenta o tempo limite das queries iniciais
-		keepAliveIntervalMs: 25000
+		keepAliveIntervalMs: 25000,
+		markOnlineOnConnect: false, // <--- Adicione esta linha
+		syncFullHistory: false       // <--- Adicione esta linha
 	});
 
 	sock.ev.on('creds.update', saveCreds);
