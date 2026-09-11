@@ -120,6 +120,14 @@ async function connectToWhatsApp() {
 		browser: ['Chrome', 'Desktop', '10.0']
 	});
 
+	sock.ev.on('messages.upsert', async (m) => {
+		// Apenas para garantir que o bot processe ou ignore com segurança
+		const message = m.messages[0];
+		if (!message.key.fromMe && message.message) {
+			// Suas lógicas de recebimento, se houver
+		}
+	});
+
 	sock.ev.on('creds.update', saveCreds);
 
 	sock.ev.on('connection.update', (update) => {
