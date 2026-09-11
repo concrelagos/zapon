@@ -109,7 +109,10 @@ async function connectToWhatsApp() {
 
 	sock = makeWASocket({
 		auth: state,
-		printQRInTerminal: false
+		printQRInTerminal: false,
+		connectTimeoutMs: 60000, // <--- Aumenta o tempo limite de conexão para 60 segundos
+		defaultQueryTimeoutMs: 60000, // <--- Aumenta o tempo limite das queries iniciais
+		keepAliveIntervalMs: 25000
 	});
 
 	sock.ev.on('creds.update', saveCreds);
